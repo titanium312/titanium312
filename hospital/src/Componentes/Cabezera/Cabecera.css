@@ -1,0 +1,136 @@
+/* Estilos generales de la cabecera */
+.headerContainer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 30px;
+  background: linear-gradient(135deg, rgba(2, 56, 133, 0.9), rgba(45, 115, 178, 0.9));
+  color: white;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  transition: all 0.3s ease; /* Transición suave para los cambios */
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  height: 80px; /* Altura original */
+}
+
+.headerContainer.scrolled {
+  height: 100px; /* Altura cuando se hace scroll */
+  padding: 10px 30px; /* Reduce el padding cuando se hace scroll */
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2); /* Sombra más prominente al hacer scroll */
+}
+
+/* Estilo para el logo y el título */
+.siteBranding {
+  display: flex;
+  align-items: center;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.siteLogo {
+  width: 50px;
+  height: 50px;
+  margin-right: 10px;
+  transition: transform 0.3s ease;
+}
+
+.siteTitle {
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  font-family: 'Arial', sans-serif;
+  text-transform: uppercase;
+  margin: 0;
+  transition: font-size 0.3s ease;
+}
+
+/* Efectos cuando la cabecera se hace más grande */
+.headerContainer.scrolled .siteLogo {
+  width: 60px; /* Aumenta el tamaño del logo */
+  height: 60px; /* Aumenta el tamaño del logo */
+}
+
+.headerContainer.scrolled .siteTitle {
+  font-size: 1.8rem; /* Aumenta el tamaño del título */
+}
+
+/* Menú de navegación */
+.navMenu {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  list-style-type: none;
+  transition: all 0.3s ease;
+}
+
+.navMenuList {
+  display: flex;
+  margin: 0;
+  padding: 0;
+}
+
+.navMenuItem {
+  margin-left: 0;
+}
+
+.navMenuLink {
+  color: white;
+  font-size: 1rem;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 10px;
+  display: block;
+  transition: color 0.3s ease, font-size 0.3s ease;
+}
+
+/* Efecto hover en los enlaces */
+.navMenuLink:hover {
+  color: #ff9900;
+  transform: scale(1.1); /* Efecto de zoom cuando pasas el ratón sobre los enlaces */
+}
+
+/* Menú para pantallas móviles */
+.btnMenu {
+  display: none;
+  font-size: 1.8rem;
+  cursor: pointer;
+  color: white;
+}
+
+.navMenu.activeNavMenu {
+  display: block;
+  position: absolute;
+  top: 70px;
+  right: 0;
+  background-color: rgba(0, 0, 0, 0.9);
+  width: 100%;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.navMenu.activeNavMenu .navMenuList {
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Estilo responsive */
+@media (max-width: 1024px) {
+  .btnMenu {
+    display: block;
+  }
+
+  .navMenu {
+    display: none;
+  }
+
+  .navMenuList {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .navMenuLink {
+    font-size: 1.2rem;
+    margin: 10px 0;
+  }
+}
