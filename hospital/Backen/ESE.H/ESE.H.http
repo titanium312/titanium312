@@ -1,6 +1,0 @@
-@ESE.H_HostAddress = http://localhost:5090
-
-GET {{ESE.H_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###

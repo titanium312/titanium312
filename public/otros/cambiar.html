@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gestión de Facturas — Multi Admisiones (Estético)</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace; }
+    .overlay { backdrop-filter: blur(2px); background-color: rgba(0,0,0,0.32); }
+    table { border-collapse: separate; border-spacing: 0; }
+
+    /* Animación suave SOLO para la tabla */
+    .fade-in {
+      animation: fadeIn 0.35s ease-out forwards;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+  <div class="max-w-6xl mx-auto p-6">
+    <header class="mb-6">
+      <h1 class="text-2xl font-semibold text-slate-900">Gestión de Facturas</h1>
+      <p class="text-sm text-slate-600 mt-1">Proceso por lote — Orden fijo: <span class="font-medium">Cambiar fecha → Generar número → Enviar a DIAN</span></p>
+    </header>
+
+    <main class="grid gap-6">
+      <!-- Inputs -->
+      <section class="bg-white rounded-lg shadow p-5">
+        <h2 class="text-lg font-medium mb-3">Entradas</h2> <!-- NUEVO: Selección del método de búsqueda -->
+        <div class="mt-4">
+          <label class="block text-sm text-slate-700 mb-1">Método de búsqueda del idFactura</label>
+          <div class="flex gap-6 items-center">
+            <label class="inline-flex items-center gap-2">
+              <input type="radio" name="metodoBusqueda" value="sSearch" checked class="h-4 w-4 text-sky-600" />
+              <span class="text-sm">Búsqueda clásica (sSearch)</span>
+            </label>
+            <label class="inline-flex items-center gap-2">
+              <input type="radio" name="metodoBusqueda" value="admisionInstitucion" class="h-4 w-4 text-sky-600" />
+              <span class="text-sm font-medium text-sky-700">Por número admisión + institución (recomendado)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Campo fk_institucion (solo visible con el nuevo método) -->
+        <div id="divInstitucion" class="mt-3 hidden">
+          <label class="block text-sm text-slate-700 mb-1">fk_institucion (ID de la institución)</label>
+          <input id="fkInstitucion" type="number" value="21" class="w-full max-w-xs rounded-md border border-slate-200 p-2 focus:outline-none focus:ring-2 focus:ring-sky-200" placeholder="21" />
+          <p class="text-xs text-slate-500 mt-1">Ejemplo: 21 = Estético, 22 = Otra clínica, etc.</p>
+        </div>
+
+
+        <label class="block text-sm text-slate-700 mb-1">Lista de números de admisión (uno por línea)</label>
+        <textarea id="admisionLista" class="w-full rounded-md border border-slate-200 p-3 h-36 placeholder-slate-400 mono focus:outline-none focus:ring-2 focus:ring-sky-200" placeholder="178947
+178849
+178989"></textarea>
+
+       
+        <div class="mt-4 grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm text-slate-700 mb-1">Nueva Fecha (dd/mm/yyyy)</label>
+            <input id="fechaInput" class="w-full rounded-md border border-slate-200 p-2 focus:outline-none focus:ring-2 focus:ring-sky-200" placeholder="19/11/2025" />
+            <p class="text-xs text-slate-500 mt-1">La fecha se convertirá internamente a MM/DD/YYYY para la API.</p>
+          </div>
+
+          <div>
+            <label class="block text-sm text-slate-700 mb-1">Acciones (selecciona)</label>
+            <div class="flex gap-4 items-center mt-2">
+              <label class="inline-flex items-center gap-2">
+                <input id="chkCambiar" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
+                <span class="text-sm">Cambiar Fecha</span>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <input id="chkGenerar" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
+                <span class="text-sm">Generar Número</span>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <input id="chkEnviar" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
+                <span class="text-sm">Enviar a DIAN</span>
+              </label>
+            </div>
+            <p class="text-xs text-slate-500 mt-2">El orden de ejecución es fijo: <em>Cambiar → Generar → Enviar</em>.</p>
+          </div>
+        </div>
+
+        <div class="mt-4 flex items-center justify-between gap-3">
+          <div>
+            <button id="ejecutarBtn" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-md shadow-sm">Ejecutar acciones</button>
+            <button id="limpiarBtn" class="ml-2 px-4 py-2 border border-slate-200 rounded-md text-slate-700">Limpiar</button>
+            <button id="vaciarTablaBtn" class="ml-2 px-3 py-2 border border-red-200 text-red-600 rounded-md">Vaciar tabla</button>
+          </div>
+          <div class="text-sm text-slate-600">
+            <span id="summary">Listo</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Progress and table -->
+      <section class="bg-white rounded-lg shadow p-5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-medium">Progreso y resultados</h3>
+          <div class="text-sm text-slate-600">Progreso: <span id="progressPct">0%</span></div>
+        </div>
+
+        <div class="mt-3">
+          <div class="w-full bg-slate-100 rounded-md h-3 overflow-hidden">
+            <div id="progressBar" class="h-3 bg-sky-500" style="width:0%"></div>
+          </div>
+        </div>
+
+        <div class="mt-5">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-sm font-medium text-slate-700">Tabla de resultados</h4>
+            <p class="text-xs text-slate-500">Cada fila representa una admisión procesada. Usa "Eliminar" para quitarla de la vista.</p>
+          </div>
+
+          <div class="overflow-auto border border-slate-100 rounded-md">
+            <table class="min-w-full text-sm">
+              <thead class="bg-slate-50 sticky top-0">
+                <tr class="text-slate-600">
+                  <th class="px-3 py-2 text-left">Admisión</th>
+                  <th class="px-3 py-2 text-left">idFactura</th>
+                  <th class="px-3 py-2 text-left">numeroAdmision</th>
+                  <th class="px-3 py-2 text-left">numeroFactura</th>
+                  <th class="px-3 py-2 text-left">Acciones realizadas</th>
+                  <th class="px-3 py-2 text-left">Resultado</th>
+                  <th class="px-3 py-2 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="resultsTableBody" class="bg-white divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Overlay (spinner) -->
+  <div id="overlay" class="fixed inset-0 hidden z-50 items-center justify-center overlay">
+    <div class="bg-white rounded-lg p-6 shadow-lg w-28 h-28 flex items-center justify-center">
+      <svg class="h-12 w-12 animate-spin text-sky-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"></path>
+      </svg>
+    </div>
+  </div>
+
+<script>
+/* =========== Config =========== */
+const BASE = "https://total-oeyx.onrender.com";
+const API_BUSCAR_SSEARCH = `${BASE}/BuscarIdFactura`;
+const API_BUSCAR_DB = `${BASE}/BuscarIdFacturaDb`;   // <-- NUEVA API
+
+/* =========== Elements =========== */
+const admisionListaEl = document.getElementById('admisionLista');
+const fechaInputEl = document.getElementById('fechaInput');
+const chkCambiarEl = document.getElementById('chkCambiar');
+const chkGenerarEl = document.getElementById('chkGenerar');
+const chkEnviarEl = document.getElementById('chkEnviar');
+const ejecutarBtn = document.getElementById('ejecutarBtn');
+const limpiarBtn = document.getElementById('limpiarBtn');
+const vaciarTablaBtn = document.getElementById('vaciarTablaBtn');
+const divInstitucion = document.getElementById('divInstitucion');
+const fkInstitucionInput = document.getElementById('fkInstitucion');
+
+const resultsBody = document.getElementById('resultsTableBody');
+const progressBar = document.getElementById('progressBar');
+const progressPct = document.getElementById('progressPct');
+const summary = document.getElementById('summary');
+
+/* Mostrar/ocultar campo institución */
+document.querySelectorAll('input[name="metodoBusqueda"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    divInstitucion.classList.toggle('hidden', radio.value !== 'admisionInstitucion');
+  });
+});
+
+/* UTIL */
+function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+function setProgress(percent){
+  progressBar.style.width = `${percent}%`;
+  progressPct.textContent = `${Math.round(percent)}%`;
+}
+
+function parseBuscarResponse(data) {
+  const result = { idFactura: null, numeroAdmision: null, numeroFactura: null, raw: data };
+  if (!data) return result;
+  const root = data.data ?? data;
+
+  if (typeof root === "object" && !Array.isArray(root)) {
+    if (root.idFactura) result.idFactura = String(root.idFactura).trim();
+    if (root.idFacturas) result.idFactura = String(root.idFacturas).trim();
+    if (root.numeroFactura) result.numeroFactura = String(root.numeroFactura).trim();
+    if (root.numeroAdmision) result.numeroAdmision = String(root.numeroAdmision).trim();
+    if (root.numeroAdmisiones) result.numeroAdmision = String(root.numeroAdmisiones).trim();
+  }
+
+  if ((!result.idFactura || !result.numeroAdmision || !result.numeroFactura) && Array.isArray(root)) {
+    for (const item of root) {
+      if (!result.idFactura && item.idFactura) result.idFactura = String(item.idFactura).trim();
+      if (!result.numeroFactura && item.numeroFactura) result.numeroFactura = String(item.numeroFactura).trim();
+      if (!result.numeroAdmision && item.numeroAdmision) result.numeroAdmision = String(item.numeroAdmision).trim();
+      if (result.idFactura && (result.numeroFactura || result.numeroAdmision)) break;
+    }
+  }
+  return result;
+}
+
+function convertirFechaDDMMaMMDD(fecha) {
+  const partes = fecha.split("/");
+  if (partes.length !== 3) return null;
+  const [dd, mm, yyyy] = partes.map(p => p.trim());
+  if (!/^\d{2}$/.test(dd) || !/^\d{2}$/.test(mm) || !/^\d{4}$/.test(yyyy)) return null;
+  return `${mm}/${dd}/${yyyy}`;
+}
+
+function shortStatus(resp) {
+  if (!resp) return 'ERROR';
+
+  // Caso específico para cambiar-fecha
+  if (resp.ok === true && resp.data && resp.data.valorretorno === 1) {
+    return 'OK';
+  }
+
+  // Caso específico para GenerarNumeroFactura
+  if (resp.institucion && resp.resultado) {
+    // La API devuelve {institucion: "...", resultado: {...}}
+    if (resp.resultado.valorRetorno === 1) {
+      return 'OK';
+    }
+  }
+
+  // Caso estándar
+  if (resp.success === true) return 'OK';
+
+  // APIs antiguas
+  if (resp.ok === true) return 'OK';
+  if (resp.valorRetorno === 1) return 'OK';
+
+  // Factura generada (numeroFactura puede ser 0 y aún ser exitoso)
+  if (resp.numeroFactura !== undefined || resp.numeroFacturaAsignado || resp.numero_factura) {
+    // Si hay un valorRetorno exitoso, es OK incluso si numeroFactura es 0
+    if (resp.valorRetorno === 1) return 'OK';
+    return 'OK'; // Solo tener un número de factura (incluso 0) puede ser considerado exitoso
+  }
+
+  // Código HTTP interno
+  if (resp.codigo && Number(resp.codigo) >= 200 && Number(resp.codigo) < 300) {
+    return 'OK';
+  }
+
+  // Mensajes textuales
+  const texto = (
+    resp.mensaje ||
+    resp.message ||
+    resp.mensajeRetorno ||
+    resp.statusMessage ||
+    ''
+  ).toLowerCase();
+
+  if (
+    texto.includes('ok') ||
+    texto.includes('exito') ||
+    texto.includes('éxito') ||
+    texto.includes('generad') ||
+    texto.includes('enviado') ||
+    texto.includes('modificaron') ||
+    texto.includes('finalizado') ||
+    texto.includes('asignacion')
+  ) {
+    return 'OK';
+  }
+
+  return 'ERROR';
+}
+
+/* =========== API actions =========== */
+async function buscarPorAdmision(num) {
+  const metodo = document.querySelector('input[name="metodoBusqueda"]:checked').value;
+  let idFactura, numeroAdmision, numeroFactura, raw, institucion;
+
+  if (metodo === 'admisionInstitucion') {
+    const fk = fkInstitucionInput.value.trim();
+    if (!fk || isNaN(fk)) throw new Error("Ingresa un fk_institucion válido");
+    
+    institucion = parseInt(fk); // Guardamos la institución
+
+    const res = await fetch(API_BUSCAR_DB, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        numero_admision: num,
+        fk_institucion: institucion
+      })
+    });
+
+    if (!res.ok) throw new Error(`BuscarIdFacturaDb HTTP ${res.status}`);
+    const json = await res.json();
+
+    if (json.success && json.id_factura) {
+      idFactura = String(json.id_factura);
+      numeroAdmision = String(json.numero_admision || num);
+      numeroFactura = json.numero_factura ? String(json.numero_factura) : null;
+      raw = json;
+    } else {
+      throw new Error(json.message || "Factura no encontrada");
+    }
+  } else {
+    // Método clásico sSearch
+    institucion = 20; // Por defecto para el método clásico
+    
+    const res = await fetch(API_BUSCAR_SSEARCH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sSearch: num })
+    });
+    if (!res.ok) throw new Error(`BuscarIdFactura HTTP ${res.status}`);
+    const json = await res.json();
+    
+    const parsed = parseBuscarResponse(json);
+    idFactura = parsed.idFactura;
+    numeroAdmision = parsed.numeroAdmision;
+    numeroFactura = parsed.numeroFactura;
+    raw = parsed.raw;
+  }
+
+  return {
+    idFactura,
+    numeroAdmision,
+    numeroFactura,
+    institucion, // Añadimos la institución al resultado
+    raw
+  };
+}
+
+
+
+
+
+
+
+
+
+
+async function accionCambiarFecha(idFactura, fechaDDMMYYYY) {
+  const fecha = convertirFechaDDMMaMMDD(fechaDDMMYYYY);
+  if (!fecha) return { ok: false, mensaje: "Fecha inválida (usa DD/MM/YYYY)" };
+  const res = await fetch(`${BASE}/cambiar-fecha`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idFactura, fechaEmision: fecha })
+  });
+  if (!res.ok) return { ok:false, mensaje:`HTTP ${res.status}`, status: res.status };
+  return await res.json();
+}
+
+
+
+
+
+async function accionGenerarNumero(idFactura) {
+  // Obtener el método de búsqueda seleccionado
+  const metodo = document.querySelector('input[name="metodoBusqueda"]:checked').value;
+  
+  // Determinar el Idinstitucion según el método
+  let Idinstitucion;
+  
+  if (metodo === 'admisionInstitucion') {
+    // Para el método nuevo, usar el valor del input
+    const fk = fkInstitucionInput.value.trim();
+    if (!fk || isNaN(fk)) {
+      return { 
+        ok: false, 
+        mensaje: "fk_institucion inválido para Generar Número" 
+      };
+    }
+    Idinstitucion = parseInt(fk);
+  } else {
+    // Para el método clásico, usar 20 por defecto
+    Idinstitucion = 20;
+  }
+  
+  // Construir la URL con el parámetro Idinstitucion
+  const url = `${BASE}/GenerarNumeroFactura?idFacturas=${encodeURIComponent(idFactura)}&Idinstitucion=${Idinstitucion}`;
+  
+  const res = await fetch(url);
+  if (!res.ok) return { ok:false, mensaje:`HTTP ${res.status}`, status: res.status };
+  return await res.json();
+}
+
+
+
+
+
+
+
+
+
+async function accionEnviarDian(idFactura) {
+  const res = await fetch(`${BASE}/EnviarDian`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idFacturas: idFactura })
+  });
+  if (!res.ok) return { ok:false, mensaje:`HTTP ${res.status}`, status: res.status };
+  return await res.json();
+}
+
+/* Table helpers */
+function addTableRow({ admision, idFactura, numeroAdmision, numeroFactura, acciones, resultado, level }) {
+  const tr = document.createElement('tr');
+  tr.className = 'align-top fade-in';
+
+  const colorClass =
+    level === 'ok' ? 'bg-green-50' :
+    level === 'warn' ? 'bg-amber-50' :
+    level === 'err' ? 'bg-red-50' : '';
+
+  tr.innerHTML = `
+    <td class="px-3 py-2 ${colorClass}"><div class="text-sm">${admision}</div></td>
+    <td class="px-3 py-2 ${colorClass}"><div class="text-sm mono">${idFactura || '-'}</div></td>
+    <td class="px-3 py-2 ${colorClass}"><div class="text-sm">${numeroAdmision || '-'}</div></td>
+    <td class="px-3 py-2 ${colorClass}"><div class="text-sm">${numeroFactura || '-'}</div></td>
+    <td class="px-3 py-2 ${colorClass}"><div class="text-sm">${acciones}</div></td>
+    <td class="px-3 py-2 ${colorClass}"><div class="text-sm mono">${resultado}</div></td>
+    <td class="px-3 py-2 ${colorClass} text-center">
+      <button class="text-sm text-red-600 hover:underline btn-delete">Eliminar</button>
+    </td>
+  `;
+
+  tr.querySelector('.btn-delete').addEventListener('click', () => {
+    if (confirm(`Eliminar fila de admisión ${admision} de la tabla?`)) tr.remove();
+  });
+
+  resultsBody.appendChild(tr);
+  resultsBody.parentElement.scrollTop = resultsBody.parentElement.scrollHeight;
+}
+
+/* Main flow */
+/* Main flow */
+async function ejecutarAcciones() {
+  const listaTexto = admisionListaEl.value.trim();
+  const fecha = fechaInputEl.value.trim();
+
+  const accCambiar = chkCambiarEl.checked;
+  const accGenerar = chkGenerarEl.checked;
+  const accEnviar = chkEnviarEl.checked;
+
+  summary.textContent = 'Iniciando...';
+  setProgress(0);
+
+  if (!listaTexto) { alert('Debes ingresar al menos una admisión.'); return; }
+  if (!accCambiar && !accGenerar && !accEnviar) { alert('Marca al menos una acción.'); return; }
+
+  // Procesar la lista para manejar diferentes formatos: con comas, con espacios, o uno por línea
+  const lista = listaTexto
+    .split(/[\n,;]+/) // Separar por líneas nuevas, comas o punto y coma
+    .map(l => l.trim()) // Limpiar espacios
+    .filter(l => l !== '' && !isNaN(l) && l.length > 0); // Filtrar vacíos y no-números
+
+  if (lista.length === 0) {
+    alert('No se encontraron números de admisión válidos.');
+    return;
+  }
+
+  ejecutarBtn.disabled = true;
+  limpiarBtn.disabled = true;
+  vaciarTablaBtn.disabled = true;
+
+  const total = lista.length;
+  let done = 0;
+
+  for (const admision of lista) {
+    let buscarInfo = null;
+    try {
+      buscarInfo = await buscarPorAdmision(admision);
+    } catch (err) {
+      addTableRow({
+        admision,
+        idFactura: '-',
+        numeroAdmision: '-',
+        numeroFactura: '-',
+        acciones: 'Buscar',
+        resultado: `ERROR: ${err.message}`,
+        level: 'err'
+      });
+      done++;
+      setProgress((done/total)*100);
+      continue;
+    }
+
+    const idFactura = buscarInfo.idFactura;
+    const numeroAdmision = buscarInfo.numeroAdmision || '-';
+    let numeroFactura = buscarInfo.numeroFactura || '-';
+    let accionesRealizadas = [];
+    let resultadoResumen = [];
+
+    if (!idFactura) {
+      addTableRow({
+        admision,
+        idFactura: '-',
+        numeroAdmision,
+        numeroFactura,
+        acciones: 'Buscar',
+        resultado: 'No encontrada',
+        level: 'err'
+      });
+      done++;
+      setProgress((done/total)*100);
+      continue;
+    }
+
+    if (accCambiar) {
+      accionesRealizadas.push('Cambiar fecha');
+      if (!fecha) {
+        resultadoResumen.push('Fecha: sin fecha');
+      } else {
+        try {
+          const resp = await accionCambiarFecha(idFactura, fecha);
+          const status = shortStatus(resp);
+          resultadoResumen.push(`Fecha: ${status}`);
+        } catch (err) {
+          resultadoResumen.push('Fecha: ERROR');
+        }
+      }
+    }
+
+    if (accGenerar) {
+      accionesRealizadas.push('Generar número');
+      const yaTieneNumeroFactura = numeroFactura && 
+                                  String(numeroFactura).trim() !== '-' && 
+                                  String(numeroFactura).trim() !== '' && 
+                                  String(numeroFactura).trim() !== '0' && 
+                                  String(numeroFactura).trim() !== 'null';
+      
+      if (yaTieneNumeroFactura) {
+        resultadoResumen.push('Generar: OK (ya tenía)');
+      } else {
+        try {
+          const respGen = await accionGenerarNumero(idFactura);
+          const status = shortStatus(respGen);
+          
+          // Actualizar número de factura si viene en la respuesta
+          if (respGen && respGen.resultado && respGen.resultado.numeroFactura !== undefined) {
+            // Incluso si es 0, lo mostramos
+            numeroFactura = String(respGen.resultado.numeroFactura);
+          } else if (respGen && respGen.numeroFactura !== undefined) {
+            numeroFactura = String(respGen.numeroFactura);
+          }
+          
+          resultadoResumen.push(`Generar: ${status}`);
+        } catch (err) {
+          resultadoResumen.push('Generar: ERROR');
+        }
+      }
+    }
+
+    if (accEnviar) {
+      accionesRealizadas.push('Enviar DIAN');
+      try {
+        const respD = await accionEnviarDian(idFactura);
+        const status = shortStatus(respD);
+        resultadoResumen.push(`DIAN: ${status}`);
+      } catch (err) {
+        resultadoResumen.push('DIAN: ERROR');
+      }
+    }
+
+    // Determinar si hubo algún ERROR real
+    const tieneError = resultadoResumen.some(r => {
+      return r.includes('ERROR') && 
+             !r.includes('OK (ya tenía)') && 
+             !r.includes('sin fecha');
+    });
+    
+    const resultadoFinal = tieneError ? 'ERROR' : 'OK';
+    const level = resultadoFinal === 'ERROR' ? 'err' : 'ok';
+
+    addTableRow({
+      admision,
+      idFactura,
+      numeroAdmision,
+      numeroFactura: numeroFactura || '-',
+      acciones: accionesRealizadas.join(' • ') || '-',
+      resultado: resultadoFinal,
+      level
+    });
+
+    done++;
+    setProgress((done/total)*100);
+    summary.textContent = `Procesadas ${done} / ${total}`;
+    await sleep(200);
+  }
+
+  ejecutarBtn.disabled = false;
+  limpiarBtn.disabled = false;
+  vaciarTablaBtn.disabled = false;
+  setProgress(100);
+  summary.textContent = `Completado (${total})`;
+}
+/* Events */
+ejecutarBtn.addEventListener('click', ejecutarAcciones);
+
+limpiarBtn.addEventListener('click', () => {
+  admisionListaEl.value = '';
+  fechaInputEl.value = '';
+  chkCambiarEl.checked = false;
+  chkGenerarEl.checked = false;
+  chkEnviarEl.checked = false;
+  summary.textContent = 'Listo';
+  setProgress(0);
+});
+
+vaciarTablaBtn.addEventListener('click', () => {
+  if (confirm('¿Vaciar completamente la tabla de resultados?')) {
+    resultsBody.innerHTML = '';
+    summary.textContent = 'Tabla vaciada';
+    setProgress(0);
+  }
+});
+
+setProgress(0);
+summary.textContent = 'Listo';
+</script>
+</body>
+</html>
+
+
