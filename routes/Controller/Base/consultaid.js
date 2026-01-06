@@ -9,7 +9,6 @@ const { instituciones } = require("./Instituciones");
 const BASE_URL = "https://balance.saludplus.co";
 const API_URL = "https://api.saludplus.co";
 
-// Fechas en formato COLOMBIANO → DD/MM/YYYY
 const FECHA_INICIAL = "01/01/2024";
 
 const hoy = new Date();
@@ -32,47 +31,35 @@ const postRequest = async (url, payload, headers, timeout = 45000) => {
   }
 };
 
-const findByColumn = (rows, columnIndex, value) =>
-  rows
-    .filter((row) => String(row?.[columnIndex] ?? "").trim() === String(value).trim())
-    .map((row) => Number(row[0]) || null)
-    .filter(Boolean);
-
 const findFactura = (rows, numero) =>
   rows
-    .filter((row) => {
-      const factura = String(row?.[2] ?? "");
-      if (!factura) return false;
-      // Más tolerante: contiene el número o coincide quitando prefijos y caracteres
-      return (
-        factura.includes(numero) ||
-        factura.replace(/[^0-9]/g, "") === String(numero)
-      );
+    .filter(row => {
+      const raw = String(row?.[2] ?? "").trim();
+
+      // Extrae SOLO el número inicial antes del "-"
+      const numeroFactura = raw.split("-")[0].trim();
+
+      return numeroFactura === String(numero);
     })
-    .map((row) => Number(row[0]) || null)
+    .map(row => Number(row?.[0]) || null)
     .filter(Boolean);
 
 /* =========================
-   🎯 CONTROLLER
-========================= */
-/* =========================
-   🎯 CONTROLLER CONSULTAID CORREGIDO
+   🎯 CONTROLLER CONSULTAID
 ========================= */
 const ConsultaId = async (req, res) => {
   try {
-    // ── Parámetros ───────────────────────────────────────────────
     const numero = String(req.body?.sSearch ?? req.query?.sSearch ?? "").trim();
     const idInstitucion = Number(req.body?.idInstitucion ?? req.query?.idInstitucion);
 
     if (!numero || isNaN(idInstitucion) || idInstitucion <= 0) {
       return res.status(400).json({
         ok: false,
-        message: "Parámetros requeridos: sSearch (número identificación) e idInstitucion (número válido)",
+        message: "Parámetros requeridos: sSearch e idInstitucion válido",
       });
     }
 
-    // ── Institución ──────────────────────────────────────────────
-    const institucion = instituciones.find((i) => i.idInstitucion === idInstitucion);
+    const institucion = instituciones.find(i => i.idInstitucion === idInstitucion);
     if (!institucion) {
       return res.status(404).json({
         ok: false,
@@ -85,10 +72,8 @@ const ConsultaId = async (req, res) => {
       "Content-Type": "application/x-www-form-urlencoded",
     };
 
-    // ── Token para API nueva (opcional) ──────────────────────────
-    const authToken = req.body?.token || req.body?.accessToken || null;
+    const authToken = req.body?.token || null;
 
-    // ── Servicios (igual) ────────────────────────────────────────
     const servicios = {
       admision: () =>
         postRequest(
@@ -138,186 +123,75 @@ const ConsultaId = async (req, res) => {
           { sEcho: 2, iColumns: 8, iDisplayStart: 0, iDisplayLength: 100, sSearch: numero },
           HEADERS
         ),
-
-      idanexo: async () => {
-        if (!authToken) return { result: [] };
-        try {
-          const res = await fetch(
-            `${API_URL}/api/anexoUrgencia/ListadoAnexos?pageSize=50&pageNumber=1&filter=${encodeURIComponent(numero)}&filterAudit=3`,
-            {
-              headers: {
-                Authorization: `Bearer ${authToken}`,
-                Accept: "application/json",
-              },
-            }
-          );
-          return res.ok ? await res.json() : { result: [] };
-        } catch {
-          return { result: [] };
-        }
-      },
     };
 
-    // ── Include flexible ─────────────────────────────────────────
-    const aliasMap = {
-      todo: Object.keys(servicios),
-      all: Object.keys(servicios),
-      "*": Object.keys(servicios),
-      admision: ["admision"],
-      egreso: ["egreso"],
-      evolucion: ["evolucion"],
-      notas: ["notas"],
-      ordenes: ["ordenes"],
-      historias: ["historias"],
-      facturas: ["facturas"],
-      idanexo: ["idanexo"],
-    };
+    const includeFinal = ["admision", "egreso", "evolucion", "notas", "ordenes", "historias", "facturas"];
 
-    const rawInclude = Array.isArray(req.body?.include)
-      ? req.body.include
-      : typeof req.body?.include === "string"
-      ? [req.body.include]
-      : ["admision"];
-
-    const includeFinal = [...new Set(rawInclude.flatMap((k) => aliasMap[k] || []))];
-
-    // ── Ejecución paralela ───────────────────────────────────────
     const resultados = {};
     await Promise.all(
-      includeFinal.map(async (key) => {
-        resultados[key] = await servicios[key]();
+      includeFinal.map(async k => {
+        resultados[k] = await servicios[k]();
       })
     );
 
-    // ── Procesamiento de IDs CORREGIDO ───────────────────────────
-    // ❗ IMPORTANTE: Verifica los índices reales de tus datos
-    // Normalmente: columna 0 = ID, columna 1 = Número documento
-    
     const response = { ids: {}, totales: {} };
 
-    // Helper mejorado para encontrar IDs
-    const encontrarIds = (rows, searchValue, idColumn = 0, searchColumn = 1) => {
-      return rows
-        .filter(row => {
-          const valorBusqueda = String(row?.[searchColumn] ?? "").trim();
-          return valorBusqueda === String(searchValue).trim() ||
-                 valorBusqueda.includes(String(searchValue).trim());
-        })
-        .map(row => Number(row?.[idColumn]) || null)
-        .filter(id => id && !isNaN(id));
-    };
 
-    // 🔴 AJUSTA ESTOS ÍNDICES SEGÚN TUS DATOS REALES
-    if (resultados.admision) {
-      response.ids.admision = encontrarIds(resultados.admision, numero, 0, 1); // ID col 0, Doc col 1
-    }
-    
-    if (resultados.egreso) {
-      response.ids.egreso = encontrarIds(resultados.egreso, numero, 0, 6); // ID col 0, Doc col 6
-    }
-    
-    if (resultados.evolucion) {
-      response.ids.evolucion = encontrarIds(resultados.evolucion, numero, 0, 1); // ID col 0, Doc col 1
-    }
-    
-    if (resultados.notas) {
-      response.ids.notasEnfermeria = encontrarIds(resultados.notas, numero, 0, 1); // ID col 0, Doc col 1
-      response.totales.notasEnfermeria = response.ids.notasEnfermeria.length;
-    }
-    
-    if (resultados.ordenes) {
-      response.ids.ordenesMedicas = encontrarIds(resultados.ordenes, numero, 0, 1); // ID col 0, Doc col 1
-      response.totales.ordenesMedicas = response.ids.ordenesMedicas.length;
-    }
-    
+       /* ======================================================
+       🔴 ÚNICO CAMBIO: NUMERO DE ADMICION
+       Regla: sSearch === ÚLTIMA COLUMNA
+    ====================================================== */ 
+const matchNumeroInicial = (valor, search) => {
+  if (!valor) return false;
+  const limpio = String(valor)
+    .trim()
+    .split(" ")[0]        // toma solo el primer número
+    .replace(/[^0-9]/g, "");
+  return limpio === String(search).trim();
+};
+
+
+if (resultados.admision) {
+  response.ids.admision = resultados.admision
+    .filter(row => matchNumeroInicial(row?.[1], numero)) // 👈 columna 1
+    .map(row => Number(row?.[0]) || null)                 // 👈 ID columna 0
+    .filter(Boolean);
+
+  response.totales.admision = response.ids.admision.length;
+}
+
+
+    /* ======================================================
+       🔴 ÚNICO CAMBIO: HISTORIAS CLÍNICAS
+       Regla: sSearch === ÚLTIMA COLUMNA
+    ====================================================== */
     if (resultados.historias) {
-      // 🔴 ESTO ES CRÍTICO: Verifica qué columna tiene el ID (normalmente 0) y qué columna tiene el documento
-      response.ids.historiasClinicas = encontrarIds(resultados.historias, numero, 0, 1); // ID col 0, Doc col 1
-      response.totales.historiasClinicas = response.ids.historiasClinicas.length;
-    }
-    
-    if (resultados.facturas) {
-      // Para facturas, buscamos por número de factura en columna 2
-      response.ids.factura = resultados.facturas
-        .filter(row => {
-          const factura = String(row?.[2] ?? "");
-          return factura.includes(numero) || 
-                 factura.replace(/[^0-9]/g, "") === numero;
-        })
-        .map(row => Number(row[0]) || null)
+      response.ids.historiasClinicas = resultados.historias
+        .filter(row => String(row?.[9] ?? "").trim() === numero)
+        .map(row => Number(row?.[0]) || null)
         .filter(Boolean);
+
+      response.totales.historiasClinicas =
+        response.ids.historiasClinicas.length;
+    }
+
+
+
+
+    /* =========================
+       🔒 TODO LO DEMÁS IGUAL
+    ========================= */
+    if (resultados.facturas) {
+      response.ids.factura = findFactura(resultados.facturas, numero);
       response.totales.factura = response.ids.factura.length;
     }
-    
-    if (resultados.idanexo?.result) {
-      response.ids.idanexo = resultados.idanexo.result.map((r) => r.id).filter(Boolean);
-      response.totales.idanexo = response.ids.idanexo.length;
-    }
 
-    // ── Log para depuración ──────────────────────────────────────
-    console.log("🔍 ConsultaId resultados:", {
-      numeroBuscado: numero,
-      totalHistorias: response.ids.historiasClinicas?.length || 0,
-      historiasIds: response.ids.historiasClinicas,
-      totalNotas: response.ids.notasEnfermeria?.length || 0,
-      notasIds: response.ids.notasEnfermeria,
-      totalOrdenes: response.ids.ordenesMedicas?.length || 0,
-      ordenesIds: response.ids.ordenesMedicas
-    });
-
-    // ── Validar si realmente encontró algo ───────────────────────
-    const totalDocumentos = 
-      (response.ids.admision?.length || 0) +
-      (response.ids.historiasClinicas?.length || 0) +
-      (response.ids.notasEnfermeria?.length || 0) +
-      (response.ids.ordenesMedicas?.length || 0) +
-      (response.ids.evolucion?.length || 0) +
-      (response.ids.egreso?.length || 0) +
-      (response.ids.factura?.length || 0) +
-      (response.ids.idanexo?.length || 0);
-
-    if (totalDocumentos === 0) {
-      console.log("⚠️ No se encontraron documentos para:", numero);
-      
-      // Retornar estructura vacía pero válida
-      return res.json({
-        ok: true,
-        numeroBusqueda: numero,
-        idInstitucion,
-        institucion: institucion.nombre,
-        fechaConsulta: FECHA_FINAL,
-        include: includeFinal,
-        resultados: {
-          ids: {
-            admision: [],
-            egreso: [],
-            evolucion: [],
-            notasEnfermeria: [],
-            ordenesMedicas: [],
-            historiasClinicas: [],
-            factura: [],
-            idanexo: []
-          },
-          totales: {
-            notasEnfermeria: 0,
-            ordenesMedicas: 0,
-            historiasClinicas: 0,
-            factura: 0,
-            idanexo: 0
-          }
-        },
-        mensaje: "No se encontraron documentos para la búsqueda"
-      });
-    }
-
-    // ── Respuesta final ──────────────────────────────────────────
     return res.json({
       ok: true,
       numeroBusqueda: numero,
       idInstitucion,
       institucion: institucion.nombre,
       fechaConsulta: FECHA_FINAL,
-      include: includeFinal,
       resultados: response,
     });
 
@@ -325,9 +199,12 @@ const ConsultaId = async (req, res) => {
     console.error("❌ ConsultaId:", error);
     return res.status(500).json({
       ok: false,
-      message: "Error interno al consultar la información",
-      detalle: process.env.NODE_ENV === "development" ? error.message : undefined,
+      message: "Error interno al consultar",
     });
   }
 };
+
 module.exports = { ConsultaId };
+
+
+

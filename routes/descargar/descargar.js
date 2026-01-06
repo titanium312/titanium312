@@ -47,27 +47,42 @@ async function verificarFacturaExiste(req, { numeroAdmision, institucionId }) {
   try {
     const facturaUrl = buildFacturaURLAbsolute(req, { numeroAdmision, institucionId });
     const respuesta = await fetch(facturaUrl);
-    
+
     if (!respuesta.ok) {
       return { existe: false, error: `HTTP ${respuesta.status}` };
     }
-    
-    const data = await respuesta.json();
-    
-    // Verificar si la respuesta indica que no existe factura
-    if (data.ok === false) {
-      console.log(`[INFO] Factura no encontrada para admisión ${numeroAdmision}: ${data.message || data.detalle || 'Sin detalles'}`);
-      return { existe: false, mensaje: data.message || data.detalle };
+
+    const contentType = respuesta.headers.get("content-type") || "";
+
+    // ✅ CASO CORRECTO: ES UN PDF
+    if (contentType.includes("application/pdf")) {
+      return { existe: true, url: facturaUrl };
     }
-    
-    // Si hay datos válidos, asumimos que existe
-    return { existe: true, url: facturaUrl };
-    
+
+    // ⚠️ CASO JSON (no existe factura)
+    if (contentType.includes("application/json")) {
+      const data = await respuesta.json();
+
+      if (data.ok === false) {
+        return {
+          existe: false,
+          mensaje: data.message || data.detalle || "Factura no encontrada"
+        };
+      }
+    }
+
+    // ⚠️ Cualquier otro content-type inesperado
+    return {
+      existe: false,
+      error: `Respuesta inesperada (${contentType})`
+    };
+
   } catch (error) {
     console.error(`[ERROR] Validando factura para admisión ${numeroAdmision}:`, error.message);
     return { existe: false, error: error.message };
   }
 }
+
 
 // ───────── Bloques BAT ─────────
 function makeBlock({ folder, url, pdfName }) {
@@ -394,11 +409,17 @@ const BatAuto = async (req, res) => {
         "echo."
       ].join("\r\n"));
 
-      // Lista de nombres
-      for (const j of jobs) {
-        blocks.push(`echo  ${j.nombreArchivo || j.pdfName}`);
-      }
-      blocks.push("echo.");
+// Lista de nombres
+for (const j of jobs) {
+  blocks.push(`echo  ${j.nombreArchivo || j.pdfName}`);
+}
+
+// ✅ Mostrar factura electrónica en la lista si existe
+if (includeFactura && facturaFolders.has(folder)) {
+  blocks.push(`echo  Factura Electronica`);
+}
+
+blocks.push("echo.");
 
       // Bloques de descarga
       for (const j of jobs) {
@@ -507,3 +528,6 @@ pause
 };
 
 module.exports = { BatAuto };
+
+
+

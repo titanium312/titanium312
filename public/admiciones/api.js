@@ -1,5 +1,5 @@
 // api.js — Configuración de APIs (base url + helper)
-export const BASE_URL = 'https://mestrodelmal.onrender.com';
+export const BASE_URL = 'http://localhost:3000';
 
 /**
  * apiFetch — wrapper con:
